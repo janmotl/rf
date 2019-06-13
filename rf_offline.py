@@ -2,6 +2,8 @@ from numpy import *
 from sklearn import metrics
 from sklearn.tree import DecisionTreeClassifier
 
+from stratified_choice import stratified_choice
+
 
 def offline(X, y, X_t, y_t, n_jobs, mtry, seed):
     predictions = empty((size(X_t, 0), 0))
@@ -12,16 +14,15 @@ def offline(X, y, X_t, y_t, n_jobs, mtry, seed):
             break
 
     for i in range(n_jobs):
+        # Sample training instances
+        samples = stratified_choice(y, replace=True)
+
         # Train the tree
         tree = DecisionTreeClassifier(random_state=seed, max_depth=6)
-        samples = random.choice(size(X, 0), size(X, 0), replace=True)
         tree.fit(X[ix_(samples, features[i, :])], y[samples])
 
-        # Score the testing samples (it may return just a single column...)
-        try:
-            predictions = column_stack((predictions, tree.predict_proba(X_t[:, flatnonzero(features[i, :])])[:, 1]))
-        except Exception:
-            print('Damn it')
+        # Score testing instances
+        predictions = column_stack((predictions, tree.predict_proba(X_t[:, flatnonzero(features[i, :])])[:, 1]))
 
     prediction = nanmean(predictions, axis=1)
     fpr, tpr, thresholds = metrics.roc_curve(y_t, prediction, pos_label=1)

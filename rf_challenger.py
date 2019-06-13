@@ -3,6 +3,8 @@ from sklearn import metrics
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.utils import check_random_state
 
+from stratified_choice import stratified_choice
+
 
 class RFChallenger:
     """
@@ -71,16 +73,15 @@ class RFChallenger:
         print(self.virtual_usage_counts, flush=True)
 
         for i in range(self.n_jobs):
+            # Sample training instances
+            samples = stratified_choice(self.y, replace=True)
+
             # Train the tree
             tree = DecisionTreeClassifier(random_state=self.random_state, max_depth=6)
-            samples = random.choice(size(self.X, 0), size(self.X, 0), replace=True)
             tree.fit(self.X[ix_(samples, features[i,:])], self.y[samples])
 
-            # Score the testing samples (sometimes, predict_proba returns just a single column?!)
-            try:
-                self.predictions = column_stack((self.predictions, tree_weight * tree.predict_proba(self.X_t[:, flatnonzero(features[i,:])])[:, 1]))
-            except IndexError:
-                print('Damn it')
+            # Score testing instances
+            self.predictions = column_stack((self.predictions, tree_weight * tree.predict_proba(self.X_t[:, flatnonzero(features[i,:])])[:, 1]))
 
     def getAUC(self):
         prediction = nanmean(self.predictions, axis=1)

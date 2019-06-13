@@ -5,7 +5,7 @@
 import openml   # Requires scikit <= 0.21
 import pandas as pd
 import psycopg2
-from numpy import *
+import numpy as np
 from sklearn.model_selection import train_test_split
 
 
@@ -83,7 +83,3 @@ for did in filtered.did:
 cursor.close()
 connection.close()
 print("PostgreSQL connection is closed")
-
-
-
-
