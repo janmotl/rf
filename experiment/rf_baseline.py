@@ -25,7 +25,7 @@ class RFBaseline:
         self.tree_weights = zeros(n_jobs * size(self.X_t, 1))
         self.predictions = empty((size(self.X_t, 0), 0))
 
-    def addFeature(self, x):
+    def fit(self, x):
         """ We treat all features as numerical. Since we are interested only in contrasting challenger vs. baseline, it is ok. """
 
         # Append column
@@ -36,9 +36,13 @@ class RFBaseline:
         # Unweighted feature use count
         feature_use_count = zeros((1, ncol))
 
-        # BASELINE: There has to be at least one feature for the tree. And that's all we require.
+        # BASELINE: There has to be at least one feature for the tree. And that's all we require. Can be slow.
         while True:
-            features = random.rand(self.n_jobs, col) < self.mtry
+            if col>1:
+                p = self.get_mtry(col)
+            else:
+                p = self.mtry
+            features = random.choice([False, True], (self.n_jobs, col), p=[1-p, p])
             if all(sum(features, 1)>0):
                 break
 
@@ -65,7 +69,13 @@ class RFBaseline:
             # Score testing instances
             self.predictions = column_stack((self.predictions, tree.predict_proba(self.X_t[:, flatnonzero(features[i,:])])[:, 1]))
 
-    def getAUC(self):
+    def get_mtry(self, ncol):
+        # We want to preserve the constant mtry regardless of the count of the features (we have to take into account the
+        # new feature is always present while the rest is sampled).
+        # This is important for a fair comparison.
+        return (self.mtry*ncol-1) / (ncol-1)
+
+    def get_auc(self):
         prediction = nanmean(self.predictions, axis=1)
         fpr, tpr, thresholds = metrics.roc_curve(self.y_t, prediction, pos_label=1)
         return metrics.auc(fpr, tpr)

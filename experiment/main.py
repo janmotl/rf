@@ -7,13 +7,14 @@ import pandas as pd
 import psycopg2
 import numpy as np
 from sklearn.model_selection import train_test_split
+from timeit import default_timer as timer
+from experiment.rf_baseline import RFBaseline
+from experiment.rf_challenger import RFChallenger
+from experiment.rf_wrapper import RFWrapper
+from experiment.rf_offline import offline
 
 
 # Setting
-from rf_baseline import RFBaseline
-from rf_challenger import RFChallenger
-from rf_offline import offline
-
 mtry = 2./3.    # We use rejection sampling -> for the sake of the speed of sampling, we use high mtry
 n_jobs = 30     # Count of trees in a generation
 np.set_printoptions(precision=2)
@@ -26,7 +27,7 @@ connection = psycopg2.connect(user="jan",
                               port="5432",
                               database="PredictorFactory")
 cursor = connection.cursor()
-postgres_insert_query = """ INSERT INTO predictor_factory.rf_njob30 (dataset, did, seed, auc_challenger, auc_baseline, auc_offline) VALUES (%s,%s,%s,%s,%s,%s)"""
+postgres_insert_query = """ INSERT INTO predictor_factory.rf_njob30 (dataset, did, seed, auc_challenger, auc_wrapper, auc_baseline, auc_offline, runtime_challenger, runtime_wrapper, runtime_baseline) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
 
 
 # Dataset list
@@ -63,18 +64,32 @@ for did in filtered.did:
             # Evaluate the challenger&baseline model at the last step
             challenger = RFChallenger(y=y, X_t=X_t, y_t=y_t, n_jobs=n_jobs, mtry=mtry, random_state=seed)
             baseline = RFBaseline(y=y, X_t=X_t, y_t=y_t, n_jobs=n_jobs, mtry=mtry, random_state=seed)
-            for generation in range(np.size(X, 1)):
-                challenger.addFeature(X[:, generation])
-                baseline.addFeature(X[:, generation])
+            wrapper = RFWrapper(y=y, X_t=X_t, y_t=y_t, n_jobs=n_jobs, mtry=mtry, random_state=seed)
 
-            auc_challenger = challenger.getAUC()
-            auc_baseline = baseline.getAUC()
+            start = timer()
+            for generation in range(np.size(X, 1)):
+                baseline.fit(X[:, generation])
+            runtime_baseline = timer() - start
+
+            start = timer()
+            for generation in range(np.size(X, 1)):
+                challenger.fit(X[:, generation])
+            runtime_challenger = timer() - start
+
+            start = timer()
+            for generation in range(np.size(X, 1)):
+                wrapper.fit(X[:, generation])
+            runtime_wrapper = timer() - start
+
+            auc_challenger = challenger.get_auc()
+            auc_baseline = baseline.get_auc()
+            auc_wrapper = wrapper.get_auc()
 
             # Evaluate the offline model (all features without any previous tree)
             auc_offline = offline(X, y, X_t, y_t, n_jobs, mtry, seed)
 
             # Write to db
-            record_to_insert = (dataset.name, dataset.dataset_id, seed, auc_challenger, auc_baseline, auc_offline)
+            record_to_insert = (dataset.name, dataset.dataset_id, seed, auc_challenger, auc_wrapper, auc_baseline, auc_offline, runtime_challenger, runtime_wrapper, runtime_baseline)
             cursor.execute(postgres_insert_query, record_to_insert)
             connection.commit()
 

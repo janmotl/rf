@@ -16,9 +16,9 @@ class RFChallenger:
     """
 
     # Static matlab engine (one instance is enough)
-    import matlab.engine
-    eng = matlab.engine.start_matlab()
-    eng.cd(r'.', nargout=0)
+    # import matlab.engine
+    # eng = matlab.engine.start_matlab()
+    # eng.cd(r'/Users/jan/Documents/Git/rf/experiment', nargout=0)
 
     def __init__(self, y, X_t, y_t, n_jobs, mtry, random_state):
         self.X = empty((len(y), 0))
@@ -29,12 +29,11 @@ class RFChallenger:
         self.mtry = mtry
         self.random_state = check_random_state(random_state)
 
-        self.virtual_tree_count = 0
         self.virtual_usage_counts = zeros(size(self.X_t, 1))
         self.tree_weights = zeros(n_jobs * size(self.X_t, 1))
         self.predictions = empty((size(self.X_t, 0), 0))
 
-    def addFeature(self, x):
+    def fit(self, x):
         """ We treat all features as numerical. Since we are interested only in contrasting challenger vs. baseline, it is ok. """
 
         # Append column
@@ -42,28 +41,38 @@ class RFChallenger:
         ncol = size(self.X_t, 1)
         col = size(self.X, 1)
 
-        # Unweighted feature use count
-        feature_use_count = zeros((1, ncol))
+        # Unweighted feature use count (for the new trees)
+        feature_use_count = zeros(ncol)
 
         # Sample old features
         if col > 1:
-            old_features_pack = array(RFChallenger.eng.choiceMtry(col - 1, self.mtry, self.n_jobs), dtype=bool)
+            # Here we test the hypothesis that stratified sampling is significantly better than a truly random sampling.
+            # The conclusion of the experiment: stratified sampling is significantly better than random sampling with p=0.002.
+            # But the effect size is below 0.1% of AUC. In the article, we use stratified sampling. But the old sampling used by Breiman
+            # is good enough.
+
+            # Sampling without stratification (and no guarantee of the counts - only of the probabilities):
+            mtry = self.get_mtry(col)
+            old_features_pack = random.choice([False, True], (self.n_jobs, col - 1), p=[1-mtry, mtry])
+
+            # Sampling stratified by rows and columns:
+            # old_features_pack = array(RFChallenger.eng.choice(self.n_jobs, col - 1, int(ceil(self.mtry * self.n_jobs * (col - 1)))), dtype=bool)
         else:
             old_features_pack = ones((self.n_jobs, 0), dtype=bool)
 
         # Complement the old features with the new feature
         features = column_stack((old_features_pack, ones((self.n_jobs, 1), dtype=bool)))
 
-        # Update the use count
-        feature_use_count[0, 0:col] += sum(features, axis=0)
+        # Get the use count (this is a statistic over all new trees)
+        feature_use_count[0:col] += sum(features, axis=0)
 
         # Get tree weight
         if col > 1:
             # Note: Used in the challenger. In the baseline, it may result into division by zero
-            if feature_use_count[0, col-1] == mean(feature_use_count[0:col-1]):
+            if feature_use_count[col-1] == mean(feature_use_count[0:col-1]):
                 tree_weight = 1
             else:
-                tree_weight = mean(self.virtual_usage_counts[0:col-1]) / (feature_use_count[0, col-1] - mean(feature_use_count[0:col-1]))
+                tree_weight = mean(self.virtual_usage_counts[0:col-1]) / (feature_use_count[col-1] - mean(feature_use_count[0:col-1]))
             self.virtual_usage_counts = self.virtual_usage_counts + tree_weight*feature_use_count
         else:
             tree_weight = 1
@@ -83,7 +92,13 @@ class RFChallenger:
             # Score testing instances
             self.predictions = column_stack((self.predictions, tree_weight * tree.predict_proba(self.X_t[:, flatnonzero(features[i,:])])[:, 1]))
 
-    def getAUC(self):
+    def get_mtry(self, ncol):
+        # We want to preserve the constant mtry regardless of the count of the features (we have to take into account the
+        # new feature is always present while the rest is sampled).
+        # This is important for a fair comparison.
+        return (self.mtry*ncol-1) / (ncol-1)
+
+    def get_auc(self):
         prediction = nanmean(self.predictions, axis=1)
         fpr, tpr, thresholds = metrics.roc_curve(self.y_t, prediction, pos_label=1)
         return metrics.auc(fpr, tpr)
