@@ -38,4 +38,4 @@ Each of these limitations can be removed → contributions are welcomed.
 
 #### How to cite
 
-[Learning on a Stream of Features with Random Forest](http://web.ics.upjs.sk/~horvath/itat2019/)  Jan Motl, Pavel Kordík
+[Learning on a Stream of Features with Random Forest](http://ceur-ws.org/Vol-2473/paper12.pdf)  Jan Motl, Pavel Kordík
